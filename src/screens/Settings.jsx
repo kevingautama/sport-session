@@ -3,7 +3,7 @@ import { all, run, getSetting, setSetting, resetDb, exportBytes, importDb } from
 import { CURRENCIES, currencyCode, fmt, money, currencySymbol, todayISO } from '../format.js';
 import { useStore } from '../store.jsx';
 import { PageHead, Stepper } from '../components.jsx';
-import { ArrowLeft, Eye, Trash2, Database, Plus, Monitor, Sun, Moon, Upload, Download } from 'lucide-react';
+import { ArrowLeft, Eye, Trash2, Database, Plus, Monitor, Sun, Moon, Upload, Download, ExternalLink } from 'lucide-react';
 import { getTheme, setTheme, initTheme } from '../theme.js';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -169,6 +169,31 @@ export default function Settings() {
         </CardContent>
       </Card>
 
+      {/* Attribution */}
+      <Card>
+        <CardContent className="space-y-3">
+          <div className="flex items-center gap-2 font-semibold">ℹ️ About</div>
+          <p className="text-muted-foreground text-sm">
+            Sport Session — a mobile-first badminton cost &amp; bill-splitting tracker. Built with React, Vite, sql.js and shadcn/ui.
+          </p>
+          <a
+            href="https://github.com/kevingautama/sport-session"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hover:bg-accent flex items-center justify-between rounded-xl border p-3 transition-colors"
+          >
+            <span className="flex items-center gap-3">
+              <span className="bg-muted flex size-9 items-center justify-center rounded-lg"><GithubMark /></span>
+              <span>
+                <span className="block font-semibold">View source on GitHub</span>
+                <span className="text-muted-foreground block text-xs">kevingautama/sport-session</span>
+              </span>
+            </span>
+            <ExternalLink className="text-muted-foreground size-4" />
+          </a>
+        </CardContent>
+      </Card>
+
       <Dialog open={showTube} onOpenChange={setShowTube}>
         <DialogContent>
           <DialogHeader><DialogTitle>Add a tube to inventory</DialogTitle></DialogHeader>
@@ -202,5 +227,13 @@ function AddTube({ defaultPcs, onSaved }) {
       <div className="flex items-center justify-between"><span className="text-muted-foreground text-sm">Pieces per tube</span><Stepper value={pcs} min={1} max={20} onChange={setPcs} /></div>
       <Button className="mt-1 w-full" onClick={save}>Save Tube</Button>
     </div>
+  );
+}
+
+function GithubMark() {
+  return (
+    <svg viewBox="0 0 24 24" className="size-5" fill="currentColor" aria-hidden="true">
+      <path d="M12 .5C5.73.5.5 5.73.5 12c0 5.08 3.29 9.39 7.86 10.91.58.11.79-.25.79-.56 0-.28-.01-1.02-.02-2-3.2.7-3.88-1.54-3.88-1.54-.52-1.34-1.28-1.69-1.28-1.69-1.05-.72.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.55-.29-5.23-1.28-5.23-5.69 0-1.26.45-2.29 1.19-3.1-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.18 1.18a11.1 11.1 0 0 1 5.8 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.84 1.19 3.1 0 4.42-2.69 5.39-5.25 5.68.41.36.78 1.06.78 2.14 0 1.55-.01 2.8-.01 3.18 0 .31.21.68.8.56A11.51 11.51 0 0 0 23.5 12C23.5 5.73 18.27.5 12 .5z" />
+    </svg>
   );
 }
