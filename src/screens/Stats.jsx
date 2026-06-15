@@ -54,11 +54,55 @@ export default function Stats() {
   const totalBreak = breakdown.reduce((s, b) => s + b.value, 0) || 1;
   const totalBrandPcs = brands.reduce((s, b) => s + b.pcs, 0) || 1;
 
+  // HTML tooltip rendered above the canvas (so it isn't hidden behind the
+  // center "Total" overlay) and clamped to the viewport so it never overflows.
+  const externalTooltip = (ctx) => {
+    const { chart, tooltip } = ctx;
+    let el = document.getElementById('app-chart-tooltip');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'app-chart-tooltip';
+      el.style.cssText =
+        'position:fixed;z-index:60;pointer-events:none;white-space:nowrap;' +
+        'background:var(--popover);color:var(--popover-foreground);border:1px solid var(--border);' +
+        'border-radius:8px;padding:5px 9px;font-size:12px;font-weight:600;box-shadow:0 6px 16px rgba(0,0,0,.18);' +
+        'opacity:0;transition:opacity .1s;';
+      document.body.appendChild(el);
+    }
+    if (tooltip.opacity === 0) { el.style.opacity = '0'; return; }
+    const dp = tooltip.dataPoints?.[0];
+    if (dp) {
+      const total = breakdown.reduce((s, b) => s + b.value, 0) || 1;
+      const pct = Math.round((dp.raw / total) * 100);
+      el.innerHTML = `<span style="opacity:.7">${dp.label}</span> &nbsp;${sym} ${money(dp.raw)} · ${pct}%`;
+    }
+    el.style.opacity = '1';
+
+    // Position above the hovered point, then clamp inside the viewport.
+    const rect = chart.canvas.getBoundingClientRect();
+    const caretX = rect.left + tooltip.caretX;
+    const caretY = rect.top + tooltip.caretY;
+    const tw = el.offsetWidth;
+    const th = el.offsetHeight;
+    const margin = 8;
+    let left = caretX - tw / 2;
+    let top = caretY - th - 10; // prefer above the point
+    if (top < margin) top = caretY + 16; // not enough room above → below
+    left = Math.max(margin, Math.min(left, window.innerWidth - tw - margin));
+    top = Math.max(margin, Math.min(top, window.innerHeight - th - margin));
+    el.style.left = `${left}px`;
+    el.style.top = `${top}px`;
+  };
+
   const donutConfig = useMemo(() => ({
     type: 'doughnut',
     data: { labels: breakdown.map((b) => b.label), datasets: [{ data: breakdown.map((b) => b.value), backgroundColor: breakdown.map((b) => b.color), borderWidth: 0 }] },
-    options: { cutout: '68%', plugins: { legend: { display: false } }, responsive: true, maintainAspectRatio: false },
-  }), [agg.court, agg.shuttle, agg.other]);
+    options: {
+      cutout: '68%',
+      plugins: { legend: { display: false }, tooltip: { enabled: false, external: externalTooltip } },
+      responsive: true, maintainAspectRatio: false,
+    },
+  }), [agg.court, agg.shuttle, agg.other, sym]);
 
   const dark = document.documentElement.classList.contains('dark');
   const gridColor = dark ? 'rgba(255,255,255,0.09)' : '#eef1f4';
