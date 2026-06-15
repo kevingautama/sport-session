@@ -1,21 +1,24 @@
 import { useState } from 'react';
 import { all, one, run, tx } from '../db.js';
-import { fmt, money, monthLabel, monthShort, dayNum, weekday, time12 } from '../format.js';
+import { money, monthLabel, monthShort, dayNum, weekday, time12 } from '../format.js';
 import { useStore } from '../store.jsx';
-import { PageHead, Card, Pill, Empty, Modal } from '../components.jsx';
+import { PageHead, Empty } from '../components.jsx';
+import { ArrowDownCircle, Users, Clock, CreditCard, User } from 'lucide-react';
+import { Card, CardContent } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Separator } from '@/components/ui/separator';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 
 export default function History() {
   const { version, refresh, showToast } = useStore();
   void version;
-  const [open, setOpen] = useState(null); // session id
+  const [open, setOpen] = useState(null);
 
   const sessions = all('SELECT * FROM sessions ORDER BY date DESC, id DESC');
-  const totals = one(
-    'SELECT COALESCE(SUM(total_cost),0) AS spent, COUNT(*) AS cnt, COALESCE(SUM(shuttle_cost),0) AS sc FROM sessions'
-  );
+  const totals = one('SELECT COALESCE(SUM(total_cost),0) AS spent, COUNT(*) AS cnt FROM sessions');
   const shuttlePcs = one('SELECT COALESCE(SUM(pcs_used),0) AS pcs FROM session_shuttles').pcs;
 
-  // group by month label preserving order
   const groups = [];
   for (const s of sessions) {
     const label = monthLabel(s.date);
@@ -24,8 +27,7 @@ export default function History() {
     g.items.push(s);
   }
 
-  const owedFor = (id) =>
-    one('SELECT COALESCE(SUM(amount),0) AS v FROM session_people WHERE session_id=? AND is_payer=0 AND paid=0', [id]).v;
+  const owedFor = (id) => one('SELECT COALESCE(SUM(amount),0) AS v FROM session_people WHERE session_id=? AND is_payer=0 AND paid=0', [id]).v;
   const brandFor = (id) => one('SELECT brand FROM session_shuttles WHERE session_id=? ORDER BY pcs_used DESC LIMIT 1', [id]);
   const pcsFor = (id) => one('SELECT COALESCE(SUM(pcs_used),0) AS v FROM session_shuttles WHERE session_id=?', [id]).v;
 
@@ -33,52 +35,54 @@ export default function History() {
     <>
       <PageHead title="History" sub="Your past play sessions and spending" />
 
-      <Card>
-        <div className="stat3">
-          <div className="cell"><div className="ic">⬇️</div><div className="v" style={{ color: 'var(--green)' }}>{money(totals.spent)}</div><div className="k">Total Spent</div></div>
-          <div className="cell"><div className="ic">👥</div><div className="v" style={{ color: 'var(--purple)' }}>{totals.cnt}</div><div className="k">Sessions</div></div>
-          <div className="cell"><div className="ic">🏸</div><div className="v" style={{ color: 'var(--blue)' }}>{shuttlePcs}</div><div className="k">Shuttles Used</div></div>
-        </div>
+      <Card className="mb-3.5">
+        <CardContent>
+          <div className="grid grid-cols-3 divide-x">
+            <Stat icon={<ArrowDownCircle className="size-[18px]" />} value={money(totals.spent)} label="Total Spent" tint="text-brand-green" />
+            <Stat icon={<Users className="size-[18px]" />} value={totals.cnt} label="Sessions" tint="text-brand-purple" />
+            <Stat icon={<span className="text-lg leading-none">🏸</span>} value={shuttlePcs} label="Shuttles Used" tint="text-brand-blue" />
+          </div>
+        </CardContent>
       </Card>
 
       {sessions.length === 0 && <Empty title="No history yet" sub="Saved sessions will appear here." />}
 
       {groups.map((g) => (
         <div key={g.label}>
-          <div className="month-label">{g.label}</div>
+          <div className="text-muted-foreground mt-2 mb-2.5 ml-0.5 text-[13px] font-bold">{g.label}</div>
           {g.items.map((s) => {
             const owed = owedFor(s.id);
             const brand = brandFor(s.id);
             const pcs = pcsFor(s.id);
             const perPerson = s.num_people ? s.total_cost / s.num_people : 0;
             return (
-              <Card key={s.id}>
-                <div className="hist" onClick={() => setOpen(s.id)} style={{ cursor: 'pointer' }}>
-                  <div className="hist-date">
-                    <div className="m">{monthShort(s.date)}</div>
-                    <div className="d">{dayNum(s.date)}</div>
-                    <div className="w">{weekday(s.date)}</div>
+              <Card key={s.id} className="mb-3.5 cursor-pointer transition-colors hover:border-primary/40" onClick={() => setOpen(s.id)}>
+                <CardContent className="flex gap-3">
+                  <div className="bg-brand-purple/10 flex w-14 shrink-0 flex-col items-center justify-center rounded-xl px-2 py-2.5">
+                    <div className="text-brand-purple text-[11px] font-bold uppercase tracking-wide">{monthShort(s.date)}</div>
+                    <div className="text-2xl font-extrabold leading-none">{dayNum(s.date)}</div>
+                    <div className="text-muted-foreground mt-0.5 text-[10px]">{weekday(s.date)}</div>
                   </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div className="row">
-                      <div className="row-name">{time12(s.time)}</div>
-                      <div className="row-val">{money(s.total_cost)}</div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="font-semibold">{time12(s.time)}</div>
+                      <div className="text-right">
+                        <div className="font-bold tabular-nums leading-tight">{money(s.total_cost)}</div>
+                        <div className="text-muted-foreground text-xs tabular-nums">{money(perPerson)} / person</div>
+                      </div>
                     </div>
-                    <div className="row-sub">{s.location || 'Session'}</div>
-                    <div className="meta-line">
-                      {s.duration_hr > 0 && <span>🕐 {s.duration_hr} hr</span>}
+                    <div className="text-muted-foreground truncate text-xs">{s.location || 'Session'}</div>
+                    <div className="text-muted-foreground mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-xs">
+                      {s.duration_hr > 0 && <span className="inline-flex items-center gap-1"><Clock className="size-3" /> {s.duration_hr} hr</span>}
                       {brand && <span>🏸 {brand.brand}</span>}
                       {pcs > 0 && <span>{pcs} pcs</span>}
-                      <span>👥 {s.num_people} people</span>
                     </div>
-                    <div className="row" style={{ marginTop: 8 }}>
-                      <span className="row-sub">{money(perPerson)} / person</span>
-                      {owed > 0
-                        ? <Pill kind="green">You're owed {money(owed)}</Pill>
-                        : <Pill kind="gray">Settled</Pill>}
+                    <div className="mt-2.5 flex items-center justify-between">
+                      <span className="text-muted-foreground inline-flex items-center gap-1 text-xs"><Users className="size-3.5" /> {s.num_people} people</span>
+                      {owed > 0 ? <Badge variant="green">You're owed {money(owed)}</Badge> : <Badge variant="muted">Settled</Badge>}
                     </div>
                   </div>
-                </div>
+                </CardContent>
               </Card>
             );
           })}
@@ -97,16 +101,23 @@ export default function History() {
   );
 }
 
+function Stat({ icon, value, label, tint }) {
+  return (
+    <div className="px-1 text-center">
+      <div className="flex justify-center">{icon}</div>
+      <div className={`mt-1 text-xl font-extrabold tabular-nums ${tint}`}>{value}</div>
+      <div className="text-muted-foreground text-[11px]">{label}</div>
+    </div>
+  );
+}
+
 function SessionDetail({ id, onClose, onChange, onDeleted }) {
   const s = one('SELECT * FROM sessions WHERE id=?', [id]);
   const people = all('SELECT * FROM session_people WHERE session_id=? ORDER BY is_payer DESC, id', [id]);
   const shuttles = all('SELECT * FROM session_shuttles WHERE session_id=?', [id]);
   if (!s) return null;
 
-  const togglePaid = (p) => {
-    run('UPDATE session_people SET paid=? WHERE id=?', [p.paid ? 0 : 1, p.id]);
-    onChange();
-  };
+  const togglePaid = (p) => { run('UPDATE session_people SET paid=? WHERE id=?', [p.paid ? 0 : 1, p.id]); onChange(); };
   const del = () => {
     if (!confirm('Delete this session? This cannot be undone.')) return;
     tx(({ exec }) => {
@@ -118,44 +129,54 @@ function SessionDetail({ id, onClose, onChange, onDeleted }) {
   };
 
   return (
-    <Modal title={s.location || 'Session'} onClose={onClose}>
-      <div className="row-sub" style={{ marginBottom: 12 }}>{monthLabel(s.date)} · {time12(s.time)}{s.duration_hr ? ` · ${s.duration_hr} hr` : ''}</div>
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-h-[85vh] overflow-y-auto">
+        <DialogHeader><DialogTitle>{s.location || 'Session'}</DialogTitle></DialogHeader>
+        <div className="text-muted-foreground -mt-2 text-sm">{monthLabel(s.date)} · {time12(s.time)}{s.duration_hr ? ` · ${s.duration_hr} hr` : ''}</div>
 
-      <div className="row"><span className="muted">Court Rental</span><span>{money(s.court_rental)}</span></div>
-      <div className="row"><span className="muted">Shuttlecock</span><span>{money(s.shuttle_cost)}</span></div>
-      {shuttles.map((sh) => (
-        <div className="row" key={sh.id} style={{ marginTop: 4 }}>
-          <span className="row-sub" style={{ paddingLeft: 12 }}>· {sh.brand} ({sh.pcs_used} pcs)</span>
-          <span className="row-sub">{money(sh.cost)}</span>
-        </div>
-      ))}
-      {s.other_expenses > 0 && <div className="row"><span className="muted">Other</span><span>{money(s.other_expenses)}</span></div>}
-      <div className="divider" />
-      <div className="row"><strong>Total</strong><span className="cost-out">{money(s.total_cost)}</span></div>
-
-      <div className="month-label" style={{ marginTop: 14 }}>Who pays what — tap to settle</div>
-      <ul className="list-reset">
-        {people.map((p) => (
-          <li className="row" key={p.id} style={{ marginTop: 10 }}>
-            <div className="row-lead">
-              <div className={`badgebox ${p.is_payer ? 'bx-green' : 'bx-purple'}`}>{p.is_payer ? '💳' : '👤'}</div>
-              <div className="row-name">{p.name}{p.is_payer ? ' (Payer)' : ''}</div>
+        <div className="space-y-2">
+          <Line label="Court Rental" value={money(s.court_rental)} />
+          <Line label="Shuttlecock" value={money(s.shuttle_cost)} />
+          {shuttles.map((sh) => (
+            <div key={sh.id} className="flex items-center justify-between pl-3 text-xs text-muted-foreground">
+              <span>· {sh.brand} ({sh.pcs_used} pcs)</span><span>{money(sh.cost)}</span>
             </div>
-            {p.is_payer ? (
-              <Pill kind="green">Paid</Pill>
-            ) : (
-              <button className="btn btn-sm" style={{ background: p.paid ? 'var(--green-bg)' : 'var(--orange-bg)', color: p.paid ? 'var(--green)' : '#b45309' }} onClick={() => togglePaid(p)}>
-                {p.paid ? `Settled · ${money(p.amount)}` : `Owes ${money(p.amount)}`}
-              </button>
-            )}
-          </li>
-        ))}
-      </ul>
+          ))}
+          {s.other_expenses > 0 && <Line label="Other" value={money(s.other_expenses)} />}
+        </div>
+        <Separator />
+        <div className="flex items-center justify-between"><strong>Total</strong><span className="text-brand-purple text-lg font-extrabold">{money(s.total_cost)}</span></div>
 
-      <div style={{ display: 'flex', gap: 10, marginTop: 18 }}>
-        <button className="btn btn-ghost" onClick={onClose}>Close</button>
-        <button className="btn btn-ghost" style={{ color: 'var(--red)' }} onClick={del}>Delete</button>
-      </div>
-    </Modal>
+        <div className="text-muted-foreground text-[13px] font-bold">Who pays what — tap to settle</div>
+        <ul className="space-y-2.5">
+          {people.map((p) => (
+            <li key={p.id} className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className={`flex size-9 items-center justify-center rounded-full ${p.is_payer ? 'bg-brand-green/12 text-brand-green' : 'bg-brand-purple/12 text-brand-purple'}`}>
+                  {p.is_payer ? <CreditCard className="size-4" /> : <User className="size-4" />}
+                </div>
+                <div className="font-semibold">{p.name}{p.is_payer ? ' (Payer)' : ''}</div>
+              </div>
+              {p.is_payer ? (
+                <Badge variant="green">Paid</Badge>
+              ) : (
+                <Button size="sm" variant="outline" className={p.paid ? 'text-brand-green' : 'text-brand-orange'} onClick={() => togglePaid(p)}>
+                  {p.paid ? `Settled · ${money(p.amount)}` : `Owes ${money(p.amount)}`}
+                </Button>
+              )}
+            </li>
+          ))}
+        </ul>
+
+        <DialogFooter className="sm:justify-between">
+          <Button variant="outline" onClick={onClose}>Close</Button>
+          <Button variant="outline" className="text-destructive" onClick={del}>Delete</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
+}
+
+function Line({ label, value }) {
+  return <div className="flex items-center justify-between"><span className="text-muted-foreground">{label}</span><span>{value}</span></div>;
 }

@@ -1,15 +1,23 @@
 import { useState, useMemo } from 'react';
-import { all, tx, run, getSetting } from '../db.js';
-import { fmt, money, currencySymbol, todayISO, nowHHMM } from '../format.js';
+import { all, tx, getSetting } from '../db.js';
+import { money, currencySymbol, todayISO, nowHHMM } from '../format.js';
 import { useStore } from '../store.jsx';
-import { PageHead, Card, Stepper, Pill, Modal } from '../components.jsx';
+import { PageHead, Stepper, IconBox } from '../components.jsx';
+import { LandPlot, Tag, Users, Plus, Trash2, Info } from 'lucide-react';
+import { Card, CardContent } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Separator } from '@/components/ui/separator';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { DateTimePicker } from '@/components/date-time-picker';
 
 const num = (v) => (v === '' || v == null ? 0 : Number(v) || 0);
 
 export default function NewSession() {
   const { navigate, refresh, showToast } = useStore();
 
-  // Inventory tubes available to draw from.
   const tubes = useMemo(() => all('SELECT * FROM tubes ORDER BY bought_date DESC, id DESC'), []);
   const friends = useMemo(() => all('SELECT * FROM friends ORDER BY name'), []);
   const playerName = getSetting('player_name', 'You');
@@ -21,46 +29,30 @@ export default function NewSession() {
   const [court, setCourt] = useState('');
   const [other, setOther] = useState('');
 
-  // usage: { [tubeId]: pcsUsed }. Start with every tube shown at 0.
   const [usage, setUsage] = useState(() => Object.fromEntries(tubes.map((t) => [t.id, 0])));
   const [showAdd, setShowAdd] = useState(false);
   const [visibleTubes, setVisibleTubes] = useState(() => tubes.slice(0, 3).map((t) => t.id));
 
-  // people: array of { name, isPayer }
   const [people, setPeople] = useState([{ name: playerName, isPayer: true }, { name: 'Friend 1' }, { name: 'Friend 2' }, { name: 'Friend 3' }]);
 
   const shown = tubes.filter((t) => visibleTubes.includes(t.id));
-
-  const shuttleCost = shown.reduce((sum, t) => {
-    const pcs = usage[t.id] || 0;
-    return sum + pcs * (t.price / t.pcs_per_tube);
-  }, 0);
-
+  const shuttleCost = shown.reduce((s, t) => s + (usage[t.id] || 0) * (t.price / t.pcs_per_tube), 0);
   const total = num(court) + num(other) + shuttleCost;
   const perPerson = people.length ? total / people.length : 0;
-  const youPaid = total;
   const youReceive = total - perPerson;
+  const sym = currencySymbol();
 
-  const setUse = (tubeId, val) => setUsage((u) => ({ ...u, [tubeId]: val }));
+  const setUse = (id, v) => setUsage((u) => ({ ...u, [id]: v }));
+  const addTube = (id) => { setVisibleTubes((v) => (v.includes(id) ? v : [...v, id])); setShowAdd(false); };
+  const removeTube = (id) => { setVisibleTubes((v) => v.filter((x) => x !== id)); setUse(id, 0); };
 
-  const addTube = (tubeId) => {
-    setVisibleTubes((v) => (v.includes(tubeId) ? v : [...v, tubeId]));
-    setShowAdd(false);
-  };
-  const removeTube = (tubeId) => {
-    setVisibleTubes((v) => v.filter((x) => x !== tubeId));
-    setUse(tubeId, 0);
-  };
-
-  const setCount = (n) => {
-    setPeople((p) => {
-      if (n < 1) return p;
-      if (n < p.length) return p.slice(0, n);
-      const next = [...p];
-      while (next.length < n) next.push({ name: `Friend ${next.length}` });
-      return next;
-    });
-  };
+  const setCount = (n) => setPeople((p) => {
+    if (n < 1) return p;
+    if (n < p.length) return p.slice(0, n);
+    const next = [...p];
+    while (next.length < n) next.push({ name: `Friend ${next.length}` });
+    return next;
+  });
   const setPersonName = (i, name) => setPeople((p) => p.map((x, idx) => (idx === i ? { ...x, name } : x)));
 
   const clearAll = () => {
@@ -69,10 +61,7 @@ export default function NewSession() {
   };
 
   const save = () => {
-    if (total <= 0) {
-      showToast('Add a cost before saving');
-      return;
-    }
+    if (total <= 0) { showToast('Add a cost before saving'); return; }
     tx(({ exec, lastId }) => {
       exec(
         `INSERT INTO sessions(date,time,location,court_rental,other_expenses,duration_hr,num_people,shuttle_cost,total_cost,created_at)
@@ -88,209 +77,195 @@ export default function NewSession() {
           exec(`UPDATE tubes SET remaining = MAX(0, remaining - ?) WHERE id = ?`, [pcs, t.id]);
         }
       }
-      people.forEach((p) => {
-        exec(`INSERT INTO session_people(session_id,name,is_payer,amount,paid) VALUES(?,?,?,?,?)`,
-          [sid, p.name, p.isPayer ? 1 : 0, perPerson, p.isPayer ? 1 : 0]);
-      });
+      people.forEach((p) => exec(
+        `INSERT INTO session_people(session_id,name,is_payer,amount,paid) VALUES(?,?,?,?,?)`,
+        [sid, p.name, p.isPayer ? 1 : 0, perPerson, p.isPayer ? 1 : 0]
+      ));
     });
     refresh();
     showToast('Session saved ✓');
     navigate('history');
   };
 
-  const sym = currencySymbol();
+  const available = tubes.filter((t) => !visibleTubes.includes(t.id));
 
   return (
     <>
       <PageHead
         title="New Session"
         sub="Track your play and split the cost"
-        right={<button className="link" onClick={clearAll}>Clear All</button>}
+        right={<Button variant="ghost" size="sm" className="text-primary" onClick={clearAll}>Clear All</Button>}
       />
 
       {/* Court rental */}
-      <Card>
-        <div className="row">
-          <div className="row-lead">
-            <div className="badgebox bx-green">🏟️</div>
+      <Card className="mb-3.5">
+        <CardContent className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <IconBox color="green"><LandPlot className="size-5" /></IconBox>
             <div>
-              <div className="row-name">Court Rental</div>
-              <div className="row-sub">Cost of the court</div>
+              <div className="font-semibold">Court Rental</div>
+              <div className="text-muted-foreground text-xs">Cost of the court</div>
             </div>
           </div>
-          <input className="inline-amount" type="number" inputMode="decimal" placeholder="0.00"
-            value={court} onChange={(e) => setCourt(e.target.value)} />
-        </div>
+          <Input type="number" inputMode="decimal" placeholder="0.00" value={court} onChange={(e) => setCourt(e.target.value)} className="w-28 text-right font-bold" />
+        </CardContent>
       </Card>
 
-      {/* Date / location / duration */}
-      <Card>
-        <div className="field">
-          <label>Location</label>
-          <input type="text" placeholder="e.g. JB Badminton Center - Court 5" value={location} onChange={(e) => setLocation(e.target.value)} />
-        </div>
-        <div className="row" style={{ gap: 10 }}>
-          <div className="field" style={{ flex: 1, marginBottom: 0 }}>
-            <label>Date</label>
-            <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+      {/* When / where */}
+      <Card className="mb-3.5">
+        <CardContent className="space-y-3">
+          <div className="space-y-1.5">
+            <Label>Location</Label>
+            <Input type="text" placeholder="Badminton Centre - Court 1" value={location} onChange={(e) => setLocation(e.target.value)} />
           </div>
-          <div className="field" style={{ width: 100, marginBottom: 0 }}>
-            <label>Time</label>
-            <input type="time" value={time} onChange={(e) => setTime(e.target.value)} />
+          <div className="flex gap-2.5">
+            <div className="min-w-0 flex-1 space-y-1.5">
+              <Label>Date &amp; time</Label>
+              <DateTimePicker date={date} time={time} onDateChange={setDate} onTimeChange={setTime} />
+            </div>
+            <div className="w-20 space-y-1.5"><Label>Hours</Label><Input type="number" inputMode="decimal" placeholder="2.0" value={duration} onChange={(e) => setDuration(e.target.value)} /></div>
           </div>
-          <div className="field" style={{ width: 90, marginBottom: 0 }}>
-            <label>Hours</label>
-            <input type="number" inputMode="decimal" placeholder="2.0" value={duration} onChange={(e) => setDuration(e.target.value)} />
-          </div>
-        </div>
+        </CardContent>
       </Card>
 
       {/* Shuttlecock usage */}
-      <Card>
-        <div className="card-head">
-          <div className="card-title"><span className="ci">🏸</span> Shuttlecock Usage</div>
-          {shown.length < tubes.length && (
-            <button className="link purple" onClick={() => setShowAdd(true)}>+ Add Usage</button>
-          )}
-        </div>
-        <div className="row-sub" style={{ marginTop: -6, marginBottom: 10 }}>Track by shuttlecocks from your inventory</div>
+      <Card className="mb-3.5">
+        <CardContent>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 font-bold">🏸 Shuttlecock Usage</div>
+            {available.length > 0 && (
+              <Button variant="ghost" size="sm" className="text-brand-purple h-7 gap-1 px-2" onClick={() => setShowAdd(true)}>
+                <Plus className="size-4" /> Add Usage
+              </Button>
+            )}
+          </div>
+          <p className="text-muted-foreground mb-3 text-xs">Track by shuttlecocks from your inventory</p>
 
-        {shown.length === 0 && <div className="row-sub">No tubes selected. Tap “Add Usage”.</div>}
+          {shown.length === 0 && <p className="text-muted-foreground text-sm">No tubes selected. Tap “Add Usage”.</p>}
 
-        {shown.map((t) => {
-          const pcs = usage[t.id] || 0;
-          const cost = pcs * (t.price / t.pcs_per_tube);
-          return (
-            <div className="usage" key={t.id}>
-              <div className="usage-top">
-                <div className="tube-img">🥫</div>
-                <div className="usage-meta">
-                  <div className="usage-name">{t.brand}</div>
-                  <div className="row-sub">Bought on {t.bought_date}</div>
-                  <div style={{ marginTop: 6, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                    <Pill kind="purple">{sym}{money(t.price)} / tube</Pill>
-                    <span className="row-sub">{t.pcs_per_tube} pcs per tube</span>
+          {shown.map((t) => {
+            const pcs = usage[t.id] || 0;
+            const cost = pcs * (t.price / t.pcs_per_tube);
+            return (
+              <div key={t.id} className="mb-2.5 rounded-xl border p-3">
+                <div className="flex gap-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="font-bold">{t.brand}</div>
+                    <div className="text-muted-foreground text-xs">Bought on {t.bought_date}</div>
+                    <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                      <Badge variant="purple">{sym}{money(t.price)} / tube</Badge>
+                      <span className="text-muted-foreground text-xs">{t.pcs_per_tube} pcs per tube</span>
+                    </div>
+                    <div className="text-muted-foreground mt-1.5 text-xs">{t.remaining} remaining before this session</div>
                   </div>
-                  <div className="row-sub" style={{ marginTop: 6 }}>{t.remaining} remaining before this session</div>
+                </div>
+                <div className="mt-2.5 flex items-center justify-between border-t border-dashed pt-2.5">
+                  <div className="space-y-1">
+                    <div className="text-muted-foreground text-xs">Used</div>
+                    <Stepper value={pcs} min={0} max={t.remaining} onChange={(v) => setUse(t.id, v)} />
+                  </div>
+                  <div className="text-center">
+                    <div className="text-muted-foreground text-xs">Cost</div>
+                    <div className="text-brand-purple text-lg font-extrabold">{money(cost)}</div>
+                  </div>
+                  <Button variant="outline" size="icon" onClick={() => removeTube(t.id)} aria-label="Remove"><Trash2 className="size-4" /></Button>
                 </div>
               </div>
-              <div className="usage-ctrl">
-                <div>
-                  <div className="row-sub">Used</div>
-                  <Stepper value={pcs} min={0} max={t.remaining} onChange={(v) => setUse(t.id, v)} />
-                </div>
-                <div className="center">
-                  <div className="row-sub">Cost</div>
-                  <div className="cost-out">{money(cost)}</div>
-                </div>
-                <button className="icon-btn" onClick={() => removeTube(t.id)} title="Remove">🗑️</button>
-              </div>
-            </div>
-          );
-        })}
+            );
+          })}
 
-        <div className="note">
-          <span>ℹ️</span>
-          <span>Cost is calculated from the price you paid for the tube. You can use pieces from multiple tubes in one session.</span>
-        </div>
+          <div className="bg-brand-purple/8 text-brand-purple flex gap-2.5 rounded-lg p-3 text-[12.5px]">
+            <Info className="mt-0.5 size-4 shrink-0" />
+            <span>Cost is calculated from the price you paid for the tube. You can use pieces from multiple tubes in one session.</span>
+          </div>
 
-        <div className="row" style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--line)' }}>
-          <strong>Total Shuttlecock Cost</strong>
-          <span className="cost-out">{money(shuttleCost)}</span>
-        </div>
+          <div className="mt-3 flex items-center justify-between border-t pt-3">
+            <strong>Total Shuttlecock Cost</strong>
+            <span className="text-brand-purple text-lg font-extrabold">{money(shuttleCost)}</span>
+          </div>
+        </CardContent>
       </Card>
 
       {/* Other expenses */}
-      <Card>
-        <div className="row">
-          <div className="row-lead">
-            <div className="badgebox bx-orange">🏷️</div>
+      <Card className="mb-3.5">
+        <CardContent className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <IconBox color="orange"><Tag className="size-5" /></IconBox>
             <div>
-              <div className="row-name">Other Expenses <span className="row-sub">(Optional)</span></div>
-              <div className="row-sub">Drinks, parking, etc.</div>
+              <div className="font-semibold">Other Expenses <span className="text-muted-foreground text-xs">(Optional)</span></div>
+              <div className="text-muted-foreground text-xs">Drinks, parking, etc.</div>
             </div>
           </div>
-          <input className="inline-amount" type="number" inputMode="decimal" placeholder="0.00"
-            value={other} onChange={(e) => setOther(e.target.value)} />
-        </div>
+          <Input type="number" inputMode="decimal" placeholder="0.00" value={other} onChange={(e) => setOther(e.target.value)} className="w-28 text-right font-bold" />
+        </CardContent>
       </Card>
 
       {/* People */}
-      <Card>
-        <div className="card-head">
-          <div className="card-title"><span className="ci">👥</span> People</div>
-        </div>
-        <div className="row">
-          <span className="muted">Number of People</span>
-          <Stepper value={people.length} min={1} onChange={setCount} />
-        </div>
-        <div className="divider" />
-        <ul className="list-reset">
-          {people.map((p, i) => (
-            <li className="row" key={i} style={{ marginTop: i ? 12 : 0 }}>
-              <div className="row-lead">
-                <div className="badgebox bx-purple">{i + 1}</div>
-                {p.isPayer ? (
-                  <div className="row-name">{p.name} <span className="row-sub">(Payer)</span></div>
-                ) : (
-                  <input list="friend-names" value={p.name} onChange={(e) => setPersonName(i, e.target.value)} style={{ maxWidth: 160 }} />
-                )}
-              </div>
-              {p.isPayer ? (
-                <Pill kind="green">Paid</Pill>
-              ) : (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <Pill kind="orange">Owes</Pill>
-                  <span className="row-val">{money(perPerson)}</span>
+      <Card className="mb-3.5">
+        <CardContent>
+          <div className="mb-3 flex items-center gap-2 font-bold"><Users className="size-[18px]" /> People</div>
+          <div className="flex items-center justify-between">
+            <span className="text-muted-foreground">Number of People</span>
+            <Stepper value={people.length} min={1} onChange={setCount} />
+          </div>
+          <Separator className="my-3" />
+          <ul className="space-y-3">
+            {people.map((p, i) => (
+              <li key={i} className="flex items-center justify-between gap-2">
+                <div className="flex min-w-0 items-center gap-3">
+                  <div className="bg-brand-purple/12 text-brand-purple flex size-9 shrink-0 items-center justify-center rounded-full text-sm font-bold">{i + 1}</div>
+                  {p.isPayer ? (
+                    <div className="font-semibold">{p.name} <span className="text-muted-foreground text-xs">(Payer)</span></div>
+                  ) : (
+                    <Input list="friend-names" value={p.name} onChange={(e) => setPersonName(i, e.target.value)} className="h-9 max-w-40" />
+                  )}
                 </div>
-              )}
-            </li>
-          ))}
-        </ul>
-        <datalist id="friend-names">
-          {friends.map((f) => <option value={f.name} key={f.id} />)}
-        </datalist>
+                {p.isPayer ? (
+                  <Badge variant="green">Paid</Badge>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <Badge variant="orange">Owes</Badge>
+                    <span className="font-bold tabular-nums">{money(perPerson)}</span>
+                  </div>
+                )}
+              </li>
+            ))}
+          </ul>
+          <datalist id="friend-names">{friends.map((f) => <option value={f.name} key={f.id} />)}</datalist>
+        </CardContent>
       </Card>
 
       {/* Summary */}
-      <div className="sumgrid">
-        {[
-          ['Total Cost', total],
-          ['Per Person', perPerson],
-          ['You Paid', youPaid],
-          ['You receive', youReceive],
-        ].map(([k, v]) => (
-          <div className="cell" key={k}>
-            <div className="k">{k}</div>
-            <div className="v">{money(v)}</div>
-            <div className="u">{sym}</div>
+      <div className="from-brand-green/10 grid grid-cols-4 gap-2 rounded-2xl border bg-gradient-to-b to-card px-2 py-3.5">
+        {[['Total Cost', total], ['Per Person', perPerson], ['You Paid', total], ['You receive', youReceive]].map(([k, v]) => (
+          <div key={k} className="text-center">
+            <div className="text-muted-foreground text-[11px]">{k}</div>
+            <div className="text-brand-green text-base font-extrabold tabular-nums">{money(v)}</div>
+            <div className="text-muted-foreground text-[10px]">{sym}</div>
           </div>
         ))}
       </div>
 
-      <div className="savebar">
-        <button className="btn btn-green" onClick={save}>Save Session</button>
+      <div className="sticky bottom-0 -mx-4 mt-2 bg-gradient-to-t from-background to-transparent px-4 pt-3 pb-[calc(8px+env(safe-area-inset-bottom))]">
+        <Button className="h-12 w-full text-base" onClick={save}>Save Session</Button>
       </div>
 
-      {showAdd && (
-        <Modal title="Add shuttlecock from inventory" onClose={() => setShowAdd(false)}>
-          {tubes.filter((t) => !visibleTubes.includes(t.id)).length === 0 && (
-            <div className="row-sub">All tubes are already added.</div>
-          )}
-          {tubes.filter((t) => !visibleTubes.includes(t.id)).map((t) => (
-            <button key={t.id} className="row" style={{ width: '100%', background: 'none', border: '1px solid var(--line)', borderRadius: 12, padding: 12, marginBottom: 8, textAlign: 'left' }} onClick={() => addTube(t.id)}>
-              <div className="row-lead">
-                <div className="tube-img">🥫</div>
-                <div>
-                  <div className="row-name">{t.brand}</div>
-                  <div className="row-sub">{t.remaining} left · {sym}{money(t.price)}/tube</div>
-                </div>
+      {/* Add tube dialog */}
+      <Dialog open={showAdd} onOpenChange={setShowAdd}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Add shuttlecock from inventory</DialogTitle></DialogHeader>
+          {available.length === 0 && <p className="text-muted-foreground text-sm">All tubes are already added.</p>}
+          {available.map((t) => (
+            <button key={t.id} className="hover:bg-accent flex w-full items-center justify-between rounded-xl border p-3 text-left" onClick={() => addTube(t.id)}>
+              <div>
+                <div className="font-semibold">{t.brand}</div>
+                <div className="text-muted-foreground text-xs">{t.remaining} left · {sym}{money(t.price)}/tube</div>
               </div>
-              <span className="link purple">Add</span>
+              <span className="text-brand-purple font-bold">Add</span>
             </button>
           ))}
-        </Modal>
-      )}
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

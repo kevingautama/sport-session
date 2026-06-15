@@ -20,8 +20,8 @@ export default function App() {
   const { tab } = useStore();
   const Screen = SCREENS[tab] || Home;
   return (
-    <div className="shell">
-      <div className="scroll">
+    <div className="bg-background mx-auto flex min-h-screen max-w-[480px] flex-col shadow-[0_0_60px_rgba(0,0,0,0.06)]">
+      <div className="no-scrollbar flex-1 overflow-y-auto px-4 pt-5 pb-6">
         <Screen />
       </div>
       <BottomNav />

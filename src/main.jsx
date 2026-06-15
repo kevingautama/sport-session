@@ -1,12 +1,14 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { initDb } from './db.js';
+import { initTheme } from './theme.js';
 import App from './App.jsx';
 import { StoreProvider } from './store.jsx';
-import '../styles.css';
+import './index.css';
 
 async function boot() {
   await initDb();
+  initTheme();
   createRoot(document.getElementById('app')).render(
     <StrictMode>
       <StoreProvider>

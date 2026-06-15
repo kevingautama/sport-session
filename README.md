@@ -3,6 +3,14 @@
 A mobile-first web app to track sport (badminton) session costs, manage your
 shuttlecock inventory, and split the bill with friends.
 
+## Screenshots
+
+| | Light | Dark |
+| --- | --- | --- |
+| **Home** | ![Home – light](screenshots/home-light.png) | ![Home – dark](screenshots/home-dark.png) |
+| **New Session** | ![New Session – light](screenshots/new-session-light.png) | ![New Session – dark](screenshots/new-session-dark.png) |
+| **Stats** | ![Stats – light](screenshots/stats-light.png) | ![Stats – dark](screenshots/stats-dark.png) |
+
 ## Features
 
 - **New Session** – log court rental, shuttlecock usage (drawn from your tube

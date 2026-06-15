@@ -11,6 +11,7 @@ const wasmUrl = `${import.meta.env.BASE_URL}sql-wasm.wasm`;
 
 const STORAGE_KEY = 'sport_session_db_v1';
 let db = null;
+let SQL = null; // the initialized sql.js module (needed to open imported files)
 
 /* ---------- base64 <-> bytes (chunked to avoid call-stack overflow) ---------- */
 function bytesToB64(bytes) {
@@ -178,7 +179,7 @@ function seed() {
 
 /* ---------- init ---------- */
 export async function initDb() {
-  const SQL = await initSqlJs({ locateFile: () => wasmUrl });
+  SQL = await initSqlJs({ locateFile: () => wasmUrl });
   const saved = localStorage.getItem(STORAGE_KEY);
   if (saved) {
     db = new SQL.Database(b64ToBytes(saved));
@@ -203,4 +204,27 @@ export function resetDb() {
 
 export function exportBytes() {
   return db.export();
+}
+
+/**
+ * Replace the current database with the contents of an uploaded .sqlite file.
+ * Throws if the bytes aren't a valid SQLite database. Missing tables are
+ * back-filled by migrate() so partial/older exports still load.
+ */
+export function importDb(arrayBuffer) {
+  const bytes = arrayBuffer instanceof Uint8Array ? arrayBuffer : new Uint8Array(arrayBuffer);
+  let incoming;
+  try {
+    incoming = new SQL.Database(bytes);
+    // Touch the schema catalog to confirm it's a real SQLite file.
+    incoming.exec('SELECT name FROM sqlite_master LIMIT 1');
+  } catch (e) {
+    if (incoming) incoming.close();
+    throw new Error('Not a valid SQLite database file.');
+  }
+  if (db) db.close();
+  db = incoming;
+  migrate(); // ensure our tables/columns exist
+  persist();
+  return db;
 }

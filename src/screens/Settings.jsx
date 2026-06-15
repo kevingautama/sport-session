@@ -1,8 +1,17 @@
-import { useState } from 'react';
-import { all, run, tx, getSetting, setSetting, resetDb, exportBytes } from '../db.js';
+import { useState, useRef } from 'react';
+import { all, run, getSetting, setSetting, resetDb, exportBytes, importDb } from '../db.js';
 import { CURRENCIES, currencyCode, fmt, money, currencySymbol, todayISO } from '../format.js';
 import { useStore } from '../store.jsx';
-import { PageHead, Card, Stepper, Modal } from '../components.jsx';
+import { PageHead, Stepper } from '../components.jsx';
+import { ArrowLeft, Eye, Trash2, Database, Plus, Monitor, Sun, Moon, Upload, Download } from 'lucide-react';
+import { getTheme, setTheme, initTheme } from '../theme.js';
+import { Card, CardContent } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Button } from '@/components/ui/button';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { DatePicker } from '@/components/date-time-picker';
 
 export default function Settings() {
   const { version, refresh, showToast, navigate } = useStore();
@@ -13,14 +22,17 @@ export default function Settings() {
   const defaultPcs = Number(getSetting('default_pcs_per_tube', '12'));
   const tubes = all('SELECT * FROM tubes ORDER BY bought_date DESC, id DESC');
   const sym = currencySymbol();
-
   const [showTube, setShowTube] = useState(false);
+
+  const theme = getTheme();
+  const chooseTheme = (t) => { setTheme(t); refresh(); };
 
   const setCurrency = (code) => { setSetting('currency', code); refresh(); showToast(`Currency set to ${code}`); };
   const setName = (name) => { setSetting('player_name', name); refresh(); };
-
   const adjustRemaining = (id, val) => { run('UPDATE tubes SET remaining=? WHERE id=?', [val, id]); refresh(); };
   const delTube = (id) => { run('DELETE FROM tubes WHERE id=?', [id]); refresh(); showToast('Tube removed'); };
+
+  const fileRef = useRef(null);
 
   const exportDb = () => {
     const blob = new Blob([exportBytes()], { type: 'application/x-sqlite3' });
@@ -28,6 +40,22 @@ export default function Settings() {
     const a = document.createElement('a');
     a.href = url; a.download = 'sport-session.sqlite'; a.click();
     URL.revokeObjectURL(url);
+  };
+  const onImportFile = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // allow re-selecting the same file later
+    if (!file) return;
+    if (!confirm('Importing replaces all current data with the contents of this file. Continue?')) return;
+    try {
+      const buf = await file.arrayBuffer();
+      importDb(buf);
+      initTheme(); // apply the imported theme/currency immediately
+      refresh();
+      showToast('Database imported ✓');
+      navigate('home');
+    } catch (err) {
+      showToast(err.message || 'Import failed');
+    }
   };
   const doReset = () => {
     if (!confirm('Reset all data back to the sample set? This erases your sessions.')) return;
@@ -39,75 +67,119 @@ export default function Settings() {
       <PageHead
         title="Settings"
         sub="Currency, profile and inventory"
-        right={<button className="icon-btn" onClick={() => navigate('home')} title="Back">←</button>}
+        right={<Button variant="outline" size="icon" onClick={() => navigate('home')} aria-label="Back"><ArrowLeft className="size-[18px]" /></Button>}
       />
 
-      {/* Currency */}
-      <Card>
-        <div className="card-title" style={{ marginBottom: 12 }}><span className="ci">💱</span> Currency</div>
-        <div className="field">
-          <label>Display currency</label>
-          <select value={currency} onChange={(e) => setCurrency(e.target.value)}>
-            {CURRENCIES.map((c) => (
-              <option key={c.code} value={c.code}>{c.symbol} — {c.name} ({c.code})</option>
-            ))}
-          </select>
-        </div>
-        <div className="note" style={{ background: 'var(--green-bg)', color: 'var(--green-d)' }}>
-          <span>👁️</span><span>Preview: a {money(57.5)} split shows as <strong>{fmt(57.5)}</strong></span>
-        </div>
-      </Card>
-
-      {/* Profile */}
-      <Card>
-        <div className="card-title" style={{ marginBottom: 12 }}><span className="ci">🙂</span> Your name</div>
-        <div className="field" style={{ marginBottom: 0 }}>
-          <label>Shown as the payer in new sessions</label>
-          <input type="text" value={playerName} onChange={(e) => setName(e.target.value)} />
-        </div>
-      </Card>
-
-      {/* Inventory */}
-      <Card>
-        <div className="card-head">
-          <div className="card-title"><span className="ci">🏸</span> Shuttlecock Inventory</div>
-          <button className="link purple" onClick={() => setShowTube(true)}>+ Add Tube</button>
-        </div>
-        {tubes.length === 0 && <div className="row-sub">No tubes. Add one to start tracking usage.</div>}
-        {tubes.map((t) => (
-          <div className="usage" key={t.id}>
-            <div className="usage-top">
-              <div className="tube-img">🥫</div>
-              <div className="usage-meta">
-                <div className="usage-name">{t.brand}</div>
-                <div className="row-sub">Bought {t.bought_date} · {sym}{money(t.price)}/tube · {t.pcs_per_tube} pcs</div>
-              </div>
-              <button className="icon-btn" onClick={() => delTube(t.id)} title="Remove">🗑️</button>
-            </div>
-            <div className="usage-ctrl">
-              <span className="row-sub">Remaining</span>
-              <Stepper value={t.remaining} min={0} max={t.pcs_per_tube} onChange={(v) => adjustRemaining(t.id, v)} />
+      {/* Appearance */}
+      <Card className="mb-3.5">
+        <CardContent className="space-y-3">
+          <div className="flex items-center gap-2 font-semibold">🎨 Appearance</div>
+          <div className="space-y-1.5">
+            <Label>Theme</Label>
+            <div className="grid grid-cols-3 gap-1.5">
+              {[
+                { id: 'system', label: 'System', icon: Monitor },
+                { id: 'light', label: 'Light', icon: Sun },
+                { id: 'dark', label: 'Dark', icon: Moon },
+              ].map((opt) => {
+                const Icon = opt.icon;
+                return (
+                  <Button
+                    key={opt.id}
+                    type="button"
+                    variant={theme === opt.id ? 'default' : 'outline'}
+                    className="h-auto flex-col gap-1.5 py-3"
+                    onClick={() => chooseTheme(opt.id)}
+                  >
+                    <Icon className="size-5" />
+                    <span className="text-xs">{opt.label}</span>
+                  </Button>
+                );
+              })}
             </div>
           </div>
-        ))}
+        </CardContent>
       </Card>
 
-      {/* Data */}
+      <Card className="mb-3.5">
+        <CardContent className="space-y-3">
+          <div className="flex items-center gap-2 font-semibold">💱 Currency</div>
+          <div className="space-y-1.5">
+            <Label>Display currency</Label>
+            <Select value={currency} onValueChange={setCurrency}>
+              <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {CURRENCIES.map((c) => <SelectItem key={c.code} value={c.code}>{c.symbol} — {c.name} ({c.code})</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="bg-brand-green/10 text-brand-green flex items-center gap-2.5 rounded-lg p-3 text-sm">
+            <Eye className="size-4 shrink-0" /><span>Preview: a {money(57.5)} split shows as <strong>{fmt(57.5)}</strong></span>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="mb-3.5">
+        <CardContent className="space-y-3">
+          <div className="flex items-center gap-2 font-semibold">🙂 Your name</div>
+          <div className="space-y-1.5">
+            <Label>Shown as the payer in new sessions</Label>
+            <Input type="text" value={playerName} onChange={(e) => setName(e.target.value)} />
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="mb-3.5">
+        <CardContent>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 font-semibold">🏸 Shuttlecock Inventory</div>
+            <Button variant="ghost" size="sm" className="text-brand-purple h-7 gap-1 px-2" onClick={() => setShowTube(true)}><Plus className="size-4" /> Add Tube</Button>
+          </div>
+          <div className="mt-2 space-y-2.5">
+            {tubes.length === 0 && <p className="text-muted-foreground text-sm">No tubes. Add one to start tracking usage.</p>}
+            {tubes.map((t) => (
+              <div key={t.id} className="rounded-xl border p-3">
+                <div className="flex gap-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="font-bold">{t.brand}</div>
+                    <div className="text-muted-foreground text-xs">Bought {t.bought_date} · {sym}{money(t.price)}/tube · {t.pcs_per_tube} pcs</div>
+                  </div>
+                  <Button variant="outline" size="icon" onClick={() => delTube(t.id)} aria-label="Remove"><Trash2 className="size-4" /></Button>
+                </div>
+                <div className="mt-2.5 flex items-center justify-between border-t border-dashed pt-2.5">
+                  <span className="text-muted-foreground text-sm">Remaining</span>
+                  <Stepper value={t.remaining} min={0} max={t.pcs_per_tube} onChange={(v) => adjustRemaining(t.id, v)} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
       <Card>
-        <div className="card-title" style={{ marginBottom: 12 }}><span className="ci">💾</span> Data</div>
-        <div className="row-sub" style={{ marginBottom: 12 }}>Your data lives in a SQLite database stored in this browser. Export a backup or reset to the sample data.</div>
-        <div style={{ display: 'flex', gap: 10 }}>
-          <button className="btn btn-ghost" onClick={exportDb}>Export .sqlite</button>
-          <button className="btn btn-ghost" style={{ color: 'var(--red)' }} onClick={doReset}>Reset data</button>
-        </div>
+        <CardContent className="space-y-3">
+          <div className="flex items-center gap-2 font-semibold"><Database className="size-[18px]" /> Data</div>
+          <p className="text-muted-foreground text-sm">Your data lives in a SQLite database stored in this browser. Export a backup, import one from a .sqlite file, or reset to the sample data.</p>
+          <input ref={fileRef} type="file" accept=".sqlite,.db,.sqlite3,application/x-sqlite3,application/octet-stream" className="hidden" onChange={onImportFile} />
+          <div className="grid grid-cols-2 gap-2.5">
+            <Button variant="outline" onClick={exportDb}><Download className="size-4" /> Export</Button>
+            <Button variant="outline" onClick={() => fileRef.current?.click()}><Upload className="size-4" /> Import</Button>
+          </div>
+          <Button variant="outline" className="text-destructive w-full" onClick={doReset}>Reset data</Button>
+        </CardContent>
       </Card>
 
-      {showTube && <AddTube defaultPcs={defaultPcs} onClose={() => setShowTube(false)} onSaved={() => { setShowTube(false); refresh(); showToast('Tube added'); }} />}
+      <Dialog open={showTube} onOpenChange={setShowTube}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Add a tube to inventory</DialogTitle></DialogHeader>
+          <AddTube defaultPcs={defaultPcs} onSaved={() => { setShowTube(false); refresh(); showToast('Tube added'); }} />
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
 
-function AddTube({ defaultPcs, onClose, onSaved }) {
+function AddTube({ defaultPcs, onSaved }) {
   const [brand, setBrand] = useState('');
   const [price, setPrice] = useState('');
   const [pcs, setPcs] = useState(defaultPcs || 12);
@@ -115,28 +187,20 @@ function AddTube({ defaultPcs, onClose, onSaved }) {
 
   const save = () => {
     if (!brand.trim() || !(Number(price) > 0)) return;
-    run(
-      'INSERT INTO tubes(brand,bought_date,price,pcs_per_tube,remaining,created_at) VALUES(?,?,?,?,?,?)',
-      [brand.trim(), date, Number(price), pcs, pcs, new Date().toISOString()]
-    );
+    run('INSERT INTO tubes(brand,bought_date,price,pcs_per_tube,remaining,created_at) VALUES(?,?,?,?,?,?)',
+      [brand.trim(), date, Number(price), pcs, pcs, new Date().toISOString()]);
     onSaved();
   };
 
   return (
-    <Modal title="Add a tube to inventory" onClose={onClose}>
-      <div className="field"><label>Brand / model</label>
-        <input type="text" placeholder="e.g. Yonex Aerosensa 50" value={brand} onChange={(e) => setBrand(e.target.value)} /></div>
-      <div className="row" style={{ gap: 10 }}>
-        <div className="field" style={{ flex: 1 }}><label>Price per tube</label>
-          <input type="number" inputMode="decimal" placeholder="110" value={price} onChange={(e) => setPrice(e.target.value)} /></div>
-        <div className="field" style={{ width: 120 }}><label>Date bought</label>
-          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} /></div>
+    <div className="space-y-3">
+      <div className="space-y-1.5"><Label>Brand / model</Label><Input type="text" placeholder="e.g. Yonex Aerosensa 50" value={brand} onChange={(e) => setBrand(e.target.value)} /></div>
+      <div className="flex gap-2.5">
+        <div className="flex-1 space-y-1.5"><Label>Price per tube</Label><Input type="number" inputMode="decimal" placeholder="110" value={price} onChange={(e) => setPrice(e.target.value)} /></div>
+        <div className="w-40 space-y-1.5"><Label>Date bought</Label><DatePicker date={date} onChange={setDate} /></div>
       </div>
-      <div className="row">
-        <span className="muted">Pieces per tube</span>
-        <Stepper value={pcs} min={1} max={20} onChange={setPcs} />
-      </div>
-      <button className="btn btn-green" style={{ marginTop: 16 }} onClick={save}>Save Tube</button>
-    </Modal>
+      <div className="flex items-center justify-between"><span className="text-muted-foreground text-sm">Pieces per tube</span><Stepper value={pcs} min={1} max={20} onChange={setPcs} /></div>
+      <Button className="mt-1 w-full" onClick={save}>Save Tube</Button>
+    </div>
   );
 }
